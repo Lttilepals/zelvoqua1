@@ -7,6 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,600;1,300;1,400&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 :root{
@@ -820,14 +821,13 @@ function togglePass(id,btn){
   inp.type=inp.type==='password'?'text':'password';
   btn.style.color=inp.type==='text'?'var(--gold)':'rgba(245,240,232,0.3)';
 }
-// ── USER DATABASE (localStorage based) ──
-function getUsers(){
-  try{ return JSON.parse(localStorage.getItem('zlv_users')||'{}'); }
-  catch(e){ return {}; }
-}
-function saveUsers(users){ localStorage.setItem('zlv_users', JSON.stringify(users)); }
+// ── SUPABASE INIT ──
+const SUPABASE_URL = 'https://cvdegzufeyxrbnwmlnpg.supabase.co';
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImN2ZGVnenVmZXl4cmJud21sbnBnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQ4NjAwODksImV4cCI6MjEwMDQzNjA4OX0.BycQZAfKzkSpNNbBXVpYOdWjf2y5PmX2fIfpgrg9jZI';
+const { createClient } = supabase;
+const sb = createClient(SUPABASE_URL, SUPABASE_KEY);
 
-// ── SHOW ERROR INSIDE FORM ──
+// ── HELPERS ──
 function showFormError(id, msg){
   let err = document.getElementById(id+'-error');
   if(!err){
@@ -838,60 +838,59 @@ function showFormError(id, msg){
     btn.parentNode.insertBefore(err, btn);
   }
   err.textContent = '⚠ ' + msg;
-  err.style.display='block';
+  err.style.display = 'block';
   shakeForm(id);
 }
 function clearFormError(id){
-  const err=document.getElementById(id+'-error');
-  if(err) err.style.display='none';
+  const err = document.getElementById(id+'-error');
+  if(err) err.style.display = 'none';
+}
+function isValidEmail(e){ return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e); }
+function isStrongPass(p){ return p.length >= 8 && /[A-Z]/.test(p) && /[0-9]/.test(p); }
+function setBtnLoading(btnEl, loading, text){
+  btnEl.disabled = loading;
+  btnEl.textContent = loading ? '...' : text;
+  btnEl.style.opacity = loading ? '0.6' : '1';
 }
 
-// ── VALIDATE EMAIL FORMAT ──
-function isValidEmail(e){ return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e); }
-
-// ── VALIDATE PASSWORD STRENGTH ──
-function isStrongPass(p){ return p.length >= 8; }
-
-// ── LOGIN ──
-function handleLogin(){
+// ── LOGIN with Supabase ──
+async function handleLogin(){
   clearFormError('login-form-wrap');
   const email = document.getElementById('login-email').value.trim().toLowerCase();
   const pass  = document.getElementById('login-pass').value;
+  const btn   = document.querySelector('#login-form-wrap .form-btn');
 
-  // Empty check
-  if(!email && !pass){ showFormError('login-form-wrap','Please enter your email and password.'); return; }
   if(!email){ showFormError('login-form-wrap','Please enter your email address.'); return; }
-  if(!isValidEmail(email)){ showFormError('login-form-wrap','Please enter a valid email address.'); return; }
+  if(!isValidEmail(email)){ showFormError('login-form-wrap','Please enter a valid email (e.g. name@gmail.com).'); return; }
   if(!pass){ showFormError('login-form-wrap','Please enter your password.'); return; }
 
-  // Check user exists
-  const users = getUsers();
-  if(!users[email]){
-    showFormError('login-form-wrap','No account found with this email. Please sign up first.');
+  setBtnLoading(btn, true, 'Sign In');
+
+  const { data, error } = await sb.auth.signInWithPassword({ email, password: pass });
+
+  setBtnLoading(btn, false, 'Sign In');
+
+  if(error){
+    if(error.message.includes('Invalid login credentials')){
+      showFormError('login-form-wrap','Incorrect email or password. Please try again.');
+    } else if(error.message.includes('Email not confirmed')){
+      showFormError('login-form-wrap','Please verify your email first. Check your inbox for the confirmation link.');
+    } else {
+      showFormError('login-form-wrap', error.message);
+    }
     return;
   }
 
-  // Check password
-  if(users[email].password !== btoa(pass)){
-    showFormError('login-form-wrap','Incorrect password. Please try again.');
-    // Lock after 5 attempts
-    users[email].attempts = (users[email].attempts||0) + 1;
-    if(users[email].attempts >= 5){
-      showFormError('login-form-wrap','Too many failed attempts. Account temporarily locked. Contact invest@zelvoqua.com');
-      saveUsers(users); return;
-    }
-    saveUsers(users); return;
-  }
+  // Save session info
+  const name = data.user.user_metadata?.full_name || email.split('@')[0];
+  sessionStorage.setItem('zlv_session', JSON.stringify({
+    email: data.user.email,
+    name,
+    id: data.user.id,
+    loggedIn: true
+  }));
 
-  // Reset attempts on success
-  users[email].attempts = 0;
-  users[email].lastLogin = new Date().toISOString();
-  saveUsers(users);
-
-  // Save session
-  sessionStorage.setItem('zlv_session', JSON.stringify({email, name: users[email].name, loggedIn: true}));
-
-  // Show success
+  // Show success + redirect
   const wrap = document.getElementById('login-form-wrap');
   const suc  = document.getElementById('login-success');
   wrap.style.opacity='0'; wrap.style.transform='translateY(-10px)'; wrap.style.transition='all 0.3s ease';
@@ -903,49 +902,59 @@ function handleLogin(){
   }, 300);
 }
 
-// ── SIGNUP ──
-function handleSignup(){
+// ── SIGNUP with Supabase ──
+async function handleSignup(){
   clearFormError('signup-form-wrap');
-  const fname  = document.getElementById('signup-fname').value.trim();
-  const lname  = document.getElementById('signup-lname').value.trim();
-  const email  = document.getElementById('signup-email').value.trim().toLowerCase();
-  const pass   = document.getElementById('signup-pass').value;
-  const profile= document.getElementById('signup-profile').value;
-  const terms  = document.getElementById('signup-terms').checked;
+  const fname   = document.getElementById('signup-fname').value.trim();
+  const lname   = document.getElementById('signup-lname').value.trim();
+  const email   = document.getElementById('signup-email').value.trim().toLowerCase();
+  const pass    = document.getElementById('signup-pass').value;
+  const profile = document.getElementById('signup-profile').value;
+  const terms   = document.getElementById('signup-terms').checked;
+  const btn     = document.querySelector('#signup-form-wrap .form-btn');
 
-  // Validations
   if(!fname){ showFormError('signup-form-wrap','Please enter your first name.'); return; }
   if(!email){ showFormError('signup-form-wrap','Please enter your email address.'); return; }
-  if(!isValidEmail(email)){ showFormError('signup-form-wrap','Please enter a valid email address (e.g. name@gmail.com).'); return; }
+  if(!isValidEmail(email)){ showFormError('signup-form-wrap','Please enter a valid email (e.g. name@gmail.com).'); return; }
   if(!pass){ showFormError('signup-form-wrap','Please create a password.'); return; }
-  if(!isStrongPass(pass)){ showFormError('signup-form-wrap','Password must be at least 8 characters long.'); return; }
-  if(!/[A-Z]/.test(pass)){ showFormError('signup-form-wrap','Password must contain at least one uppercase letter.'); return; }
-  if(!/[0-9]/.test(pass)){ showFormError('signup-form-wrap','Password must contain at least one number.'); return; }
+  if(pass.length < 8){ showFormError('signup-form-wrap','Password must be at least 8 characters.'); return; }
+  if(!/[A-Z]/.test(pass)){ showFormError('signup-form-wrap','Password must include at least one uppercase letter.'); return; }
+  if(!/[0-9]/.test(pass)){ showFormError('signup-form-wrap','Password must include at least one number.'); return; }
   if(!profile){ showFormError('signup-form-wrap','Please select your investor profile.'); return; }
-  if(!terms){ showFormError('signup-form-wrap','Please accept the Terms of Service to continue.'); return; }
+  if(!terms){ showFormError('signup-form-wrap','Please accept the Terms of Service.'); return; }
 
-  // Check if already registered
-  const users = getUsers();
-  if(users[email]){
-    showFormError('signup-form-wrap','An account with this email already exists. Please log in.');
+  setBtnLoading(btn, true, 'Create Account');
+
+  const fullName = fname + (lname ? ' '+lname : '');
+
+  const { data, error } = await sb.auth.signUp({
+    email, password: pass,
+    options: {
+      data: { full_name: fullName, investor_profile: profile }
+    }
+  });
+
+  setBtnLoading(btn, false, 'Create Account');
+
+  if(error){
+    if(error.message.includes('already registered')){
+      showFormError('signup-form-wrap','This email is already registered. Please log in instead.');
+    } else {
+      showFormError('signup-form-wrap', error.message);
+    }
     return;
   }
-
-  // Save user
-  users[email] = {
-    name: fname + (lname ? ' '+lname : ''),
-    email, password: btoa(pass),
-    profile, createdAt: new Date().toISOString(),
-    attempts: 0
-  };
-  saveUsers(users);
-
-  // Save session
-  sessionStorage.setItem('zlv_session', JSON.stringify({email, name: users[email].name, loggedIn: true}));
 
   // Show success
   const wrap = document.getElementById('signup-form-wrap');
   const suc  = document.getElementById('signup-success');
+
+  // Update success message to mention email verification
+  const sucTitle = suc.querySelector('.success-title');
+  const sucSub   = suc.querySelector('.success-sub');
+  if(sucTitle) sucTitle.innerHTML = 'Account <em style="color:var(--gold)">created.</em>';
+  if(sucSub)   sucSub.innerHTML  = 'Welcome to Zelvoqua!<br><span style="color:var(--gold)">Check your email</span> to verify your account, then log in.';
+
   wrap.style.opacity='0'; wrap.style.transform='translateY(-10px)'; wrap.style.transition='all 0.3s ease';
   setTimeout(()=>{
     wrap.style.display='none';
@@ -955,17 +964,15 @@ function handleSignup(){
 }
 
 function shakeForm(id){
-  const el=document.getElementById(id);
+  const el = document.getElementById(id);
   el.animate([{transform:'translateX(-6px)'},{transform:'translateX(6px)'},{transform:'translateX(-4px)'},{transform:'translateX(4px)'},{transform:'translateX(0)'}],{duration:400,easing:'ease-in-out'});
 }
 document.addEventListener('keydown',e=>{if(e.key==='Escape')closeAllModals();});
 
-// ── REAL-TIME PASSWORD STRENGTH INDICATOR ──
+// ── PASSWORD STRENGTH BAR ──
 document.addEventListener('DOMContentLoaded',()=>{
   const passInput = document.getElementById('signup-pass');
   if(!passInput) return;
-
-  // Create strength bar
   const strengthWrap = document.createElement('div');
   strengthWrap.style.cssText='margin-top:0.5rem';
   const bar = document.createElement('div');
@@ -975,28 +982,24 @@ document.addEventListener('DOMContentLoaded',()=>{
   bar.appendChild(fill);
   const label = document.createElement('div');
   label.style.cssText='font-size:0.68rem;margin-top:0.3rem;letter-spacing:0.08em';
-
   strengthWrap.appendChild(bar);
   strengthWrap.appendChild(label);
   passInput.parentNode.parentNode.appendChild(strengthWrap);
-
   passInput.addEventListener('input',()=>{
-    const v = passInput.value;
-    let score = 0;
-    if(v.length >= 8) score++;
-    if(/[A-Z]/.test(v)) score++;
-    if(/[0-9]/.test(v)) score++;
-    if(/[^A-Za-z0-9]/.test(v)) score++;
-
-    const colors = ['#EF5350','#FF9800','#FFD54F','#66BB6A'];
-    const labels = ['Weak','Fair','Good','Strong'];
-    const widths = ['25%','50%','75%','100%'];
-
-    if(v.length === 0){ fill.style.width='0%'; label.textContent=''; return; }
-    fill.style.background = colors[score-1]||colors[0];
-    fill.style.width = widths[score-1]||'25%';
-    label.textContent = labels[score-1]||'Weak';
-    label.style.color = colors[score-1]||colors[0];
+    const v=passInput.value;
+    let score=0;
+    if(v.length>=8)score++;
+    if(/[A-Z]/.test(v))score++;
+    if(/[0-9]/.test(v))score++;
+    if(/[^A-Za-z0-9]/.test(v))score++;
+    const colors=['#EF5350','#FF9800','#FFD54F','#66BB6A'];
+    const labels=['Weak','Fair','Good','Strong'];
+    const widths=['25%','50%','75%','100%'];
+    if(v.length===0){fill.style.width='0%';label.textContent='';return;}
+    fill.style.background=colors[score-1]||colors[0];
+    fill.style.width=widths[score-1]||'25%';
+    label.textContent=labels[score-1]||'Weak';
+    label.style.color=colors[score-1]||colors[0];
   });
 });
 </script>
