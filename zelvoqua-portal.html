@@ -7,6 +7,26 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,600;1,300;1,400&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script>
+// SESSION GUARD — block direct access without login
+(function(){
+  const s = sessionStorage.getItem('zlv_session');
+  if(!s){ window.location.href='index.html'; return; }
+  try{
+    const sess = JSON.parse(s);
+    if(!sess.loggedIn){ window.location.href='index.html'; return; }
+    // Update name in sidebar
+    document.addEventListener('DOMContentLoaded',()=>{
+      const n = document.querySelector('.sidebar-user-name');
+      const nm = sess.name||'Investor';
+      if(n) n.textContent = nm;
+      // Update avatar initials
+      const av = document.querySelector('.sidebar-avatar');
+      if(av){ const parts=nm.split(' '); av.textContent=(parts[0][0]+(parts[1]?parts[1][0]:'')).toUpperCase(); }
+    });
+  } catch(e){ window.location.href='index.html'; }
+})();
+</script>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 :root{
@@ -333,7 +353,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--ink);color:var(--cream);o
     <a class="nav-item"><span class="nav-icon">⚙</span>Settings</a>
   </nav>
   <div class="sidebar-bottom">
-    <a class="sidebar-logout" href="zelvoqua.html">← Log Out</a>
+    <a class="sidebar-logout" href="#" onclick="sessionStorage.removeItem('zlv_session');window.location.href='index.html'">← Log Out</a>
   </div>
 </div>
 
