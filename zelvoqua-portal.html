@@ -7,24 +7,50 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,600;1,300;1,400&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
-// SESSION GUARD — block direct access without login
-(function(){
-  const s = sessionStorage.getItem('zlv_session');
-  if(!s){ window.location.href='index.html'; return; }
-  try{
-    const sess = JSON.parse(s);
-    if(!sess.loggedIn){ window.location.href='index.html'; return; }
-    // Update name in sidebar
-    document.addEventListener('DOMContentLoaded',()=>{
-      const n = document.querySelector('.sidebar-user-name');
-      const nm = sess.name||'Investor';
-      if(n) n.textContent = nm;
-      // Update avatar initials
-      const av = document.querySelector('.sidebar-avatar');
-      if(av){ const parts=nm.split(' '); av.textContent=(parts[0][0]+(parts[1]?parts[1][0]:'')).toUpperCase(); }
-    });
-  } catch(e){ window.location.href='index.html'; }
+// ── SUPABASE SESSION GUARD ──
+const SUPABASE_URL = 'https://cvdegzufeyxrbnwmlnpg.supabase.co';
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImN2ZGVnenVmZXl4cmJud21sbnBnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQ4NjAwODksImV4cCI6MjEwMDQzNjA4OX0.BycQZAfKzkSpNNbBXVpYOdWjf2y5PmX2fIfpgrg9jZI';
+const { createClient } = supabase;
+const sb = createClient(SUPABASE_URL, SUPABASE_KEY);
+
+(async function(){
+  // Check Supabase session first
+  const { data: { session } } = await sb.auth.getSession();
+
+  // Also check sessionStorage fallback
+  let sessData = null;
+  try{ sessData = JSON.parse(sessionStorage.getItem('zlv_session')||'null'); }catch(e){}
+
+  if(!session && (!sessData || !sessData.loggedIn)){
+    window.location.href = 'index.html';
+    return;
+  }
+
+  // Get user info — prefer Supabase session
+  const user = session ? session.user : null;
+  const name = user?.user_metadata?.full_name
+    || sessData?.name
+    || (user?.email ? user.email.split('@')[0] : 'Investor');
+
+  // Update UI after DOM loads
+  document.addEventListener('DOMContentLoaded',()=>{
+    // Sidebar name
+    const nameEl = document.querySelector('.sidebar-user-name');
+    if(nameEl) nameEl.textContent = name;
+
+    // Avatar initials
+    const av = document.querySelector('.sidebar-avatar');
+    if(av){
+      const parts = name.trim().split(' ');
+      av.textContent = (parts[0][0] + (parts[1] ? parts[1][0] : '')).toUpperCase();
+    }
+
+    // Email display if exists
+    const typeEl = document.querySelector('.sidebar-user-type');
+    if(typeEl && user?.email) typeEl.textContent = user.email;
+  });
 })();
 </script>
 <style>
@@ -353,7 +379,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--ink);color:var(--cream);o
     <a class="nav-item"><span class="nav-icon">⚙</span>Settings</a>
   </nav>
   <div class="sidebar-bottom">
-    <a class="sidebar-logout" href="#" onclick="sessionStorage.removeItem('zlv_session');window.location.href='index.html'">← Log Out</a>
+    <a class="sidebar-logout" href="#" onclick="(async()=>{await sb.auth.signOut();sessionStorage.removeItem('zlv_session');window.location.href='index.html';})()">← Log Out</a>
   </div>
 </div>
 
